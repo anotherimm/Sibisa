@@ -13,21 +13,22 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
+  RefreshControl, // Add this import
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { addNasabah, getNasabahList, updateNasabah, deleteNasabah } from '../services/api';
 import { MaterialIcons } from '@expo/vector-icons';
-
 
 export default function NasabahScreen() {
   const [nasabahList, setNasabahList] = useState([]);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  
   const [filteredNasabahList, setFilteredNasabahList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // Add this state
+
   // Form states
   const [nama, setNama] = useState('');
   const [telepon, setTelepon] = useState('');
@@ -45,20 +46,31 @@ export default function NasabahScreen() {
     try {
       setIsLoading(true);
       const data = await getNasabahList();
-      // Pastikan setiap nasabah memiliki `nasabahId` sebagai ID unik
       const validatedData = data.map((nasabah) => ({
         ...nasabah,
-        id: nasabah.nasabahId, // Gunakan `nasabahId` dari Firebase sebagai `id`
+        id: nasabah.nasabahId,
       }));
       setNasabahList(validatedData || []);
     } catch (error) {
       console.error("Error loading nasabah:", error);
       Alert.alert("Error", "Gagal memuat data nasabah");
-    }
-    finally {
+    } finally {
       setIsLoading(false);
     }
   };
+
+  // Add this function for handling refresh
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadNasabahData();
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+      Alert.alert("Error", "Gagal memperbarui data");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
   
   const resetForm = () => {
     setNama('');
@@ -74,7 +86,7 @@ export default function NasabahScreen() {
       Alert.alert("Error", "Semua field harus diisi");
       return;
     }
-
+ 
     const nasabahData = { nama, telepon, alamat };
     
     try {
@@ -82,11 +94,15 @@ export default function NasabahScreen() {
         await updateNasabah(selectedId, nasabahData);
         Alert.alert("Sukses", `Data nasabah ${nama} berhasil diperbarui!`);
       } else {
-        await addNasabah(nasabahData);
-        Alert.alert("Sukses", `Nasabah ${nama} berhasil ditambahkan!`);
+        const result = await addNasabah(nasabahData);
+        if (result.success) {
+          Alert.alert("Sukses", `Nasabah ${nama} berhasil ditambahkan!`);
+          resetForm();
+          loadNasabahData();
+        } else {
+          Alert.alert("Peringatan", result.message);
+        }
       }
-      resetForm();
-      loadNasabahData();
     } catch (error) {
       console.error("Error submitting nasabah:", error);
       Alert.alert("Error", isEditing ? "Gagal memperbarui nasabah" : "Gagal menambahkan nasabah");
@@ -221,6 +237,16 @@ export default function NasabahScreen() {
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={['#4CAF50']}
+                tintColor="#4CAF50"
+                title="Menarik untuk memperbarui..."
+                titleColor="#999"
+              />
+            }
             ListEmptyComponent={() => (
               <View style={styles.emptyContainer}>
                 {isLoading ? (
@@ -295,7 +321,7 @@ export default function NasabahScreen() {
                   style={[styles.button, styles.cancelButton]}
                   onPress={resetForm}
                 >
-                  <Text style={styles.buttonText}>Batal</Text>
+                  <Text style={styles.buttonText}>Keluar</Text>
                 </TouchableOpacity>
               </View>
             </View>

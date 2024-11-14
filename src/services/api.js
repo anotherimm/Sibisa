@@ -170,21 +170,57 @@ export const updateNasabah = async (nasabahId, nasabahData) => {
 
 export const addNasabah = async (nasabahData) => {
   try {
-    // Membuat ID unik untuk nasabah baru
-    const nasabahRef = push(ref(db, 'nasabah'));
-    const nasabahId = nasabahRef.key;
+    // Mengambil referensi ke data nasabah
+    const nasabahRef = ref(db, 'nasabah');
+    
+    // Mengambil semua data nasabah yang ada
+    const snapshot = await get(nasabahRef);
+    const nasabahList = snapshot.val();
+
+    // Mengecek apakah nama atau nomor telepon sudah terdaftar
+    if (nasabahList) {
+      const existingNasabah = Object.values(nasabahList).find(
+        nasabah => 
+          nasabah.nama.toLowerCase() === nasabahData.nama.toLowerCase() ||
+          nasabah.noTelp === nasabahData.noTelp
+      );
+
+      if (existingNasabah) {
+        if (existingNasabah.nama.toLowerCase() === nasabahData.nama.toLowerCase()) {
+          return {
+            success: false,
+            message: 'Nama nasabah sudah terdaftar'
+          };
+        }
+        if (existingNasabah.noTelp === nasabahData.noTelp) {
+          return {
+            success: false,
+            message: 'Nomor telepon sudah terdaftar'
+          };
+        }
+      }
+    }
+
+    // Jika belum ada yang terdaftar, buat ID baru dan tambahkan data
+    const newNasabahRef = push(nasabahRef);
+    const nasabahId = newNasabahRef.key;
 
     // Tambahkan data nasabah dengan ID yang baru dibuat
-    await set(nasabahRef, {
+    await set(newNasabahRef, {
       ...nasabahData,
-      nasabahId, // Simpan nasabahId dalam data nasabah untuk referensi di masa depan
+      nasabahId,
     });
 
-    console.log("Nasabah berhasil ditambahkan");
-    return nasabahId;
+    return {
+      success: true,
+      message: 'Nasabah berhasil ditambahkan',
+      nasabahId
+    };
   } catch (error) {
-    console.error("Error adding nasabah:", error);
-    throw error;
+    return {
+      success: false,
+      message: 'Terjadi kesalahan saat menambahkan nasabah'
+    };
   }
 };
 

@@ -13,17 +13,19 @@ import {
   Image,
   TextInput,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getSetoranList, deleteSetoran, updateSetoran } from '../services/api';
 
-export default function HasilSetoranScreen({ navigation }) {
+export default function HasilSetoranScreen() {
   const [setoranList, setSetoranList] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSetoran, setSelectedSetoran] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editableItem, setEditableItem] = useState(null);
 
@@ -35,7 +37,7 @@ export default function HasilSetoranScreen({ navigation }) {
     try {
       setLoading(true);
       const data = await getSetoranList();
-  
+      
       const groupedData = data.reduce((acc, item) => {
         const nasabahId = item.nasabahId;
         if (!acc[nasabahId]) {
@@ -70,20 +72,23 @@ export default function HasilSetoranScreen({ navigation }) {
       Alert.alert('Error', 'Gagal memuat data setoran');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
-  
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadSetoranData();
+  }, []);
 
   const handleSearch = (text) => {
     setSearchQuery(text);
-    if (text) {
-      const filtered = setoranList.filter(item =>
-        item.nama.toLowerCase().includes(text.toLowerCase())
-      );
-      setFilteredData(filtered);
-    } else {
-      setFilteredData(setoranList);
-    }
+    const filtered = text 
+      ? setoranList.filter(item => 
+          item.nama.toLowerCase().includes(text.toLowerCase())
+        )
+      : setoranList;
+    setFilteredData(filtered);
   };
 
   const formatDate = (dateString) => {
@@ -91,19 +96,52 @@ export default function HasilSetoranScreen({ navigation }) {
     return new Date(dateString).toLocaleDateString('id-ID', options);
   };
 
-  const handleEditItem = (item, index) => {
-    // Pastikan semua properti di-set dengan nilai default jika undefined
-    const itemToEdit = {
-      ...item,
-      jenisSampah: item.jenisSampah ?? 'Tidak Diketahui', // Nilai default jika undefined
-      berat: item.berat ?? 0, // Nilai default jika undefined
-    };
-  
-    setEditMode(true);
-    setEditableItem({ ...itemToEdit, index });
-    setModalVisible(true);
+  const handleEditItem = async (itemId, updatedData) => {
+    try {
+      await updateSetoran(itemId, updatedData);
+      Alert.alert('Sukses', 'Data setoran berhasil diperbarui', [{
+        text: 'OK',
+        onPress: () => {
+          loadSetoranData();
+          setModalVisible(false);
+          setEditMode(false);
+          setEditableItem(null);
+        }
+      }]);
+    } catch (error) {
+      console.error('Error saving edited setoran:', error);
+      Alert.alert('Error', 'Gagal memperbarui data setoran');
+    }
   };
-  
+
+  const handleDeleteItem = async (itemId) => {
+    Alert.alert(
+      'Konfirmasi Hapus',
+      'Apakah Anda yakin ingin menghapus data setoran ini?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSetoran(itemId);
+              Alert.alert('Sukses', 'Data setoran berhasil dihapus', [{
+                text: 'OK',
+                onPress: () => {
+                  loadSetoranData();
+                  setModalVisible(false);
+                }
+              }]);
+            } catch (error) {
+              console.error('Error deleting setoran:', error);
+              Alert.alert('Error', 'Gagal menghapus data setoran');
+            }
+          }
+        }
+      ]
+    );
+  };
 
   const renderItem = ({ item }) => (
     <TouchableOpacity
@@ -130,90 +168,25 @@ export default function HasilSetoranScreen({ navigation }) {
   );
 
   const DetailModal = () => {
-    const [editMode, setEditMode] = useState(false);
-    const [editableItem, setEditableItem] = useState(null);
-  
-    const handleSaveEdit = async () => {
+    const handleSaveEdit = () => {
+      if (!editableItem) return;
+
       const setoranId = selectedSetoran.items[editableItem.index]?.id;
       if (!setoranId) {
         Alert.alert('Error', 'ID setoran tidak ditemukan');
         return;
       }
-    
-      const jenisSampah = editableItem.jenisSampah && editableItem.jenisSampah.trim() !== ""
-        ? editableItem.jenisSampah
-        : selectedSetoran.items[editableItem.index]?.jenisSampah || 'Tidak Diketahui';
-    
+
       const updatedData = {
-        berat: editableItem?.berat || 0,
-        jenisSampah: jenisSampah,
+        berat: editableItem.berat || 0,
+        jenisSampah: editableItem.jenisSampah?.trim() || 'Tidak Diketahui',
         namaNasabah: selectedSetoran?.nama || 'Tidak Diketahui',
-        tanggal: editableItem?.tanggal || new Date().toISOString(),
+        tanggal: editableItem.tanggal || new Date().toISOString(),
       };
-    
-      try {
-        await updateSetoran(setoranId, updatedData);
-        Alert.alert(
-          'Sukses',
-          'Data setoran ${} berhasil diperbarui',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                loadSetoranData();
-                setModalVisible(false);
-                setEditMode(false);
-              }
-            }
-          ]
-        );
-      } catch (error) {
-        console.error('Error saving edited setoran:', error);
-        Alert.alert('Error', 'Gagal memperbarui data setoran');
-      }
-    };
-    
-    const handleDeleteItem = async (itemId) => {
-      Alert.alert(
-        'Konfirmasi Hapus',
-        'Apakah Anda yakin ingin menghapus data setoran ini?',
-        [
-          {
-            text: 'Batal',
-            style: 'cancel'
-          },
-          {
-            text: 'Hapus',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await deleteSetoran(itemId);
-                Alert.alert(
-                  'Sukses',
-                  'Data setoran berhasil dihapus',
-                  [
-                    {
-                      text: 'OK',
-                      onPress: () => {
-                        loadSetoranData();
-                        setModalVisible(false);
-                      }
-                    }
-                  ]
-                );
-              } catch (error) {
-                console.error('Error deleting setoran:', error);
-                Alert.alert('Error', 'Gagal menghapus data setoran');
-              }
-            }
-          }
-        ]
-      );
-    };
-    
 
+      handleEditItem(setoranId, updatedData);
+    };
 
-  
     return (
       <>
         <Modal
@@ -230,7 +203,7 @@ export default function HasilSetoranScreen({ navigation }) {
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Detail Setoran</Text>
               <Text style={styles.modalSubtitle}>{selectedSetoran?.nama}</Text>
-  
+
               <ScrollView style={styles.modalItems}>
                 {selectedSetoran?.items.map((item, index) => (
                   <View key={index} style={styles.modalItem}>
@@ -249,30 +222,22 @@ export default function HasilSetoranScreen({ navigation }) {
                         <Text style={styles.editButton}>Edit</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => {
-                          if (selectedSetoran.items[index]?.id) {
-                            handleDeleteItem(selectedSetoran.items[index].id);
-                          } else {
-                            console.warn("ID untuk item tidak ditemukan.");
-                          }
-                        }}
+                        onPress={() => item.id && handleDeleteItem(item.id)}
                       >
                         <Text style={styles.deleteButton}>Hapus</Text>
                       </TouchableOpacity>
-
-
                     </View>
                   </View>
                 ))}
               </ScrollView>
-  
+
               <View style={styles.modalTotal}>
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>Total Berat:</Text>
                   <Text style={styles.totalValue}>{selectedSetoran?.totalBerat} kg</Text>
                 </View>
               </View>
-  
+
               <TouchableOpacity
                 style={styles.closeButton}
                 onPress={() => setModalVisible(false)}
@@ -282,7 +247,7 @@ export default function HasilSetoranScreen({ navigation }) {
             </View>
           </View>
         </Modal>
-  
+
         {editMode && (
           <Modal
             transparent={true}
@@ -293,25 +258,23 @@ export default function HasilSetoranScreen({ navigation }) {
               setEditableItem(null);
               setModalVisible(true);
             }}
-            style={{ zIndex: 2 }}
           >
-            <View style={[styles.modalContainer, { zIndex: 2 }]}>
+            <View style={styles.modalContainer}>
               <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Edit Item</Text>
                 <TextInput
                   style={styles.input}
                   value={editableItem?.jenisSampah}
                   onChangeText={(text) =>
-                    setEditableItem({ ...editableItem, jenisSampah: text })  // Memastikan perubahan disimpan
+                    setEditableItem(prev => ({ ...prev, jenisSampah: text }))
                   }
                   placeholder="Jenis Sampah"
                 />
-
                 <TextInput
                   style={styles.input}
-                  value={editableItem?.berat.toString()}
+                  value={editableItem?.berat?.toString()}
                   onChangeText={(text) =>
-                    setEditableItem({ ...editableItem, berat: parseFloat(text) })
+                    setEditableItem(prev => ({ ...prev, berat: parseFloat(text) || 0 }))
                   }
                   placeholder="Berat"
                   keyboardType="numeric"
@@ -366,6 +329,16 @@ export default function HasilSetoranScreen({ navigation }) {
             keyExtractor={item => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={['#4CAF50']}
+                tintColor="#4CAF50"
+                title="Menarik untuk memperbarui..."
+                titleColor="#4CAF50"
+              />
+            }
           />
         )}
       </View>
@@ -374,7 +347,6 @@ export default function HasilSetoranScreen({ navigation }) {
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
     container: {
       flex: 1,
